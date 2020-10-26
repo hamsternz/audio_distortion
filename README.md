@@ -5,12 +5,12 @@ Creates a PPM image of the captured spectrum.
 
 ![Example](https://github.com/hamsternz/audio_distortion/blob/main/example.png)
 
-NOTE - only meausures the LEFT channel of the DEFAULT ALSA audio device.
+NOTE - only meausures the **LEFT** channel of the DEFAULT ALSA audio device.
 
-WARNING: IF YOU SEND THE OUTPUT OF THIS PROGRAM TO YOUR SPEAKERS OR HEADPHONES YOU
-MIGHT DAMGAGE EITHER YOUR SPEAKERS OUR YOUR EARS
+> **WARNING**: IF YOU SEND THE OUTPUT OF THIS PROGRAM TO YOUR SPEAKERS OR HEADPHONES YOU
+> MIGHT DAMAGE EITHER YOUR SPEAKERS AND/OR YOUR EARS
 
-## Prerequeists
+## Prerequisites
 
 You will need to have the ALSA dev libraries installed.
 
