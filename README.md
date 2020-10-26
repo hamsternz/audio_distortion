@@ -1,10 +1,12 @@
 # audio_distortion
-Measure the THD+Noise for your default audio device with a 1kHz tone.
+A basic utility to measure the THD+Noise for your default audio device with a 1kHz tone.
 
 Creates a PPM image of the captured spectrum.
 
-NOTE - only meausures the LEFT channel of the DEFAULT ALSA audio device.
+![Example](https://github.com/hamsternz/audio_distortion/blob/main/example.png)
 
+NOTE - only meausures the LEFT channel of the DEFAULT ALSA audio device.
+.
 WARNING: IF YOU SEND THE OUTPUT OF THIS PROGRAM TO YOUR SPEAKERS OR HEADPHONES YOU MIGHT DAMGAGE EITHER YOUR SPEAKERS OUR YOUR EARS
 
 ## Prerequeists
@@ -24,6 +26,8 @@ You will need to have the ALSA dev libraries installed.
 NOTE: Something is up with the capture volume - the driver reports different max and min values than it seems to use. This may also be a bug. 
 
 5. Numbers will be displayed, and "graph.ppm" will be written.
+
+Look in main() to change the test frequency
 
 ## Optimizing the result
 
