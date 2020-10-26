@@ -1,5 +1,5 @@
 # audio_distortion
-Measure the THD+Noise for your default audio device. 
+Measure the THD+Noise for your default audio device with a 1kHz tone.
 
 Creates a PPM image of the captured spectrum.
 
@@ -28,6 +28,3 @@ NOTE: Something is up with the capture volume - the driver reports different max
 ## Optimizing the result
 
 If you have very high THD numbers (> 1%) you are either overdriving the output or input. Try reducing the capture volume, and if that doesn't help, also try reducing the master volume. A reasonable sound card should easily get well below 0.1%
-
-
-
