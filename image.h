@@ -1,0 +1,11 @@
+struct image *image_new(int w, int h);
+struct image *image_from_ppm(char *file_name);
+void image_set_font(struct image *img, struct image *font);
+int image_text(struct image *img, int x, int y, char *text);
+void image_set_pos(struct image *img, int x, int y);
+void image_set_colour(struct image *img, uint8_t r, uint8_t g, uint8_t b);
+void image_set_pixel(struct image *img, int x, int y, uint8_t r, uint8_t g, uint8_t b);
+void image_rectangle(struct image *img, int x, int y, int w, int h);
+int image_write(struct image *img, char *fname);
+void image_set_text_align(struct image *img, int h_align, int v_align);
+void image_free(struct image *img);
