@@ -276,7 +276,7 @@ static int capture_data(double *points, int point_count) {
    int16_t *pb_samples;
    double  *pb_sin;
    double  *pb_cos;
-   int volume_pb = 95;
+   int volume_pb = 80;
    int volume_cap = 3;
    int best_volume_cap = 3;
 
@@ -314,81 +314,80 @@ static int capture_data(double *points, int point_count) {
       best_volume_cap = 3;
       volume_cap = 3;
 
-   do {
-      ///////////////////////////////////////////////////
-      //// Find Optimal volume 
-      ///////////////////////////////////////////////////
-      double setup_power       = 0.0;
-      double setup_cos         = 0.0;
-      double setup_sin         = 0.0;
-      double setup_signal      = 0.0;
-      double setup_distortion  = 0.0;
-      if(setup_last_dest_db < setup_dest_db) {
-         setup_last_dest_db = setup_dest_db;
-         best_volume_cap = volume_cap;
-      }
-      volume_cap++; 
-      printf("\n");
-      SetLevels(volume_pb, volume_cap);
-      samples_read = 0;
- 
-      while(samples_read < skip+setup_point_count) {
-         if(to_write == 0) {
-            for(int j = 0; j < sizeof(buffer_out)/sizeof(struct frame_i16_stereo); j++) {
-               buffer_out[j].l = pb_samples[wp];
-               buffer_out[j].r = pb_samples[wp];
-               wp += setup_frequency_hz;
-               if(wp >= desired_rate) 
-                 wp -= desired_rate;
-            }
-            to_write = sizeof(buffer_out)/sizeof(struct frame_i16_stereo); 
-            buffer_written = 0;
+      do {
+         ///////////////////////////////////////////////////
+         //// Find Optimal volume 
+         ///////////////////////////////////////////////////
+         double setup_power       = 0.0;
+         double setup_cos         = 0.0;
+         double setup_sin         = 0.0;
+         double setup_signal      = 0.0;
+         double setup_distortion  = 0.0;
+         if(setup_last_dest_db < setup_dest_db+1.00) {
+            setup_last_dest_db = setup_dest_db;
+            best_volume_cap = volume_cap;
          }
+         volume_cap++; 
+         printf("\n");
+         SetLevels(volume_pb, volume_cap);
+         samples_read = 0;
+    
+         while(samples_read < skip+setup_point_count) {
+            if(to_write == 0) {
+               for(int j = 0; j < sizeof(buffer_out)/sizeof(struct frame_i16_stereo); j++) {
+                  buffer_out[j].l = pb_samples[wp];
+                  buffer_out[j].r = pb_samples[wp];
+                  wp += setup_frequency_hz;
+                  if(wp >= desired_rate) 
+                     wp -= desired_rate;
+               }
+               to_write = sizeof(buffer_out)/sizeof(struct frame_i16_stereo); 
+               buffer_written = 0;
+            }
+      
    
-
-         int frames_written = snd_pcm_writei(snddev_pb, buffer_out+buffer_written, to_write);
-         if(frames_written < 0) {
-            if(frames_written != -EAGAIN) {
-               printf("Playback error %i\n", frames_written);
+            int frames_written = snd_pcm_writei(snddev_pb, buffer_out+buffer_written, to_write);
+            if(frames_written < 0) {
+               if(frames_written != -EAGAIN) {
+                  printf("Playback error %i\n", frames_written);
+               }
+            } else {
+               to_write       -= frames_written;
+               buffer_written += frames_written;
             }
-         } else {
-            to_write       -= frames_written;
-            buffer_written += frames_written;
+   
+            int frames_read = snd_pcm_readi(snddev_cap, buffer_in, sizeof(buffer_in)/sizeof(struct frame_i16_stereo));
+            if(frames_read > 0) {
+                for(int i = 0; i < frames_read; i++) {
+                   if(samples_read >= skip && samples_read < skip+setup_point_count) {
+                      setup_power += buffer_in[i].l * buffer_in[i].l;
+                      setup_sin   += buffer_in[i].l * pb_sin[swp];
+                      setup_cos   += buffer_in[i].l * pb_cos[swp];
+                      swp += setup_frequency_hz;
+                      if(swp >= desired_rate) 
+                         swp -= desired_rate;
+                   }
+                   samples_read++;
+                } 
+            }
+            usleep(5000);
          }
-
-         int frames_read = snd_pcm_readi(snddev_cap, buffer_in, sizeof(buffer_in)/sizeof(struct frame_i16_stereo));
-         if(frames_read > 0) {
-             for(int i = 0; i < frames_read; i++) {
-                if(samples_read >= skip && samples_read < skip+setup_point_count) {
-                   setup_power += buffer_in[i].l * buffer_in[i].l;
-                   setup_sin   += buffer_in[i].l * pb_sin[swp];
-                   setup_cos   += buffer_in[i].l * pb_cos[swp];
-;
-                   swp += setup_frequency_hz;
-                   if(swp >= desired_rate) 
-                      swp -= desired_rate;
-                }
-                samples_read++;
-             } 
+         setup_sin    /= setup_point_count/2;
+         setup_cos    /= setup_point_count/2;
+         setup_power  /= setup_point_count;
+         setup_signal  = sqrt(setup_sin*setup_sin + setup_cos*setup_cos)/sqrt(2);
+         setup_power   = sqrt(setup_power);
+         setup_distortion = setup_power-setup_signal;
+         setup_dest_db    = (log(setup_power)-log(setup_distortion))/log(10)*10; 
+         printf("Setup signal      %12.6f\n", setup_signal);
+         printf("Setup power       %12.6f\n", setup_power);
+         printf("Est distortion  %12.6f dB\n", setup_dest_db);
+         if(setup_dest_db < 10.0) { 
+            fprintf(stderr, "No signal detected. Have you got the loopback cable plugged in?\n");
+            exit(5);
          }
-         usleep(5000);
-      }
-      setup_sin    /= setup_point_count/2;
-      setup_cos    /= setup_point_count/2;
-      setup_power  /= setup_point_count;
-      setup_signal  = sqrt(setup_sin*setup_sin + setup_cos*setup_cos)/sqrt(2);
-      setup_power   = sqrt(setup_power);
-      setup_distortion = setup_power-setup_signal;
-      setup_dest_db    = (log(setup_power)-log(setup_distortion))/log(10)*10; 
-      printf("Setup signal      %12.6f\n", setup_signal);
-      printf("Setup power       %12.6f\n", setup_power);
-      printf("Est distortion  %12.6f dB\n", setup_dest_db);
-      if(setup_dest_db < 10.0) { 
-         fprintf(stderr, "No signal detected. Have you got the loopback cable plugged in?\n");
-         exit(5);
-      }
-      volume_pb = 100;
-   } while(setup_dest_db > setup_last_dest_db-3);
+         volume_pb = 100;
+      } while(setup_dest_db > setup_last_dest_db-3);
 
       volume_cap--; 
       SetLevels(volume_pb, best_volume_cap);
@@ -622,11 +621,16 @@ int analyze(double *points, int point_count) {
       return 0;
    }
 
-#if 1
-   // Filter off below 20Hz
+#if 0
+   printf("Removing bins below 20 Hz.\n");
    for(i = 0; i < 20*point_count/actual_rate; i++) {
       find_s_c(points, point_count, i, &st, &ct);
-      printf("Remove bin %i: %8.5f %8.5f  %8.6f\n", i, st, ct, sqrt(st*st+ct*ct));
+      remove_tone(points, point_count, i, st, ct, &rms);
+   }
+
+   printf("Removing bins above 20 kHz.\n");
+   for(i = 20000*point_count/actual_rate; i < point_count/2;  i++) {
+      find_s_c(points, point_count, i, &st, &ct);
       remove_tone(points, point_count, i, st, ct, &rms);
    }
 #endif
