@@ -20,12 +20,9 @@ You will need to have the ALSA dev libraries installed.
 
 2. Attach a cable between line out to line in. Use a stereo cable.
 
-3. Run ../audio_distortion
-
-NOTE: Something is up with the capture volume - the driver reports different max an
-d min values than it seems to use. This may also be a bug. 
-
-5. Numbers will be displayed, and "graph.ppm" will be written.
+3. Run "../audio_distortion layback_device capture_device". The device default to hw:0
+  
+4. Numbers will be displayed, and "graph.ppm" will be written.
 
 Look in main() to change the test frequency
 

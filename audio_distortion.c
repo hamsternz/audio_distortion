@@ -11,44 +11,64 @@ static unsigned int actual_rate;
 
 
 
-static int SetLevels(long master, long capture)
+static int SetLevels(char *device_pb, char *device_cap, long master, long capture)
 {
-   const char *card = "default";
-   const char *pb_name = "Master";
-   const char *cap_name = "Capture";
    int err;
 
-   snd_mixer_t *handle;
-   snd_mixer_open(&handle, 0);
-   snd_mixer_attach(handle, card);
-   snd_mixer_selem_register(handle, NULL, NULL);
-   snd_mixer_load(handle);
    printf("Setting playback to %li%% and capture to %li%%\n", master, capture);
 
    if(master >= 0) {
-      long vol, min=0, max=0;
+      snd_mixer_t *handle;
       snd_mixer_selem_id_t *sid_pb;
       snd_mixer_elem_t* elem_pb;
+      const char *card = "default";
+      const char *pb_name = "Master";
+
+      if(device_pb != NULL) 
+         card = device_pb;
+      snd_mixer_open(&handle, 0);
+      snd_mixer_attach(handle, card);
+      snd_mixer_selem_register(handle, NULL, NULL);
+      snd_mixer_load(handle);
+
 
       snd_mixer_selem_id_alloca(&sid_pb);
       snd_mixer_selem_id_set_index(sid_pb, 0);
       snd_mixer_selem_id_set_name(sid_pb, pb_name);
       elem_pb = snd_mixer_find_selem(handle, sid_pb);
+      if(elem_pb == NULL) {
+         snd_mixer_selem_id_set_name(sid_pb, "Speaker");
+         elem_pb = snd_mixer_find_selem(handle, sid_pb);
+      }
+
+      long vol, min=0, max=0;
       snd_mixer_selem_get_playback_volume_range(elem_pb, &min, &max);
       vol = master * (max-min) / 100 + min;
       snd_mixer_selem_set_playback_volume_all(elem_pb, vol);
+      snd_mixer_close(handle);
    }
 
    if(capture >= 0) {
-      long vol, min=0, max=0;
+      snd_mixer_t *handle;
       snd_mixer_selem_id_t *sid_cap;
       snd_mixer_elem_t* elem_cap;
+      const char *card = "default";
+      const char *cap_name = "Capture";
+
+      if(device_cap != NULL) 
+         card = device_cap;
+
+      snd_mixer_open(&handle, 0);
+      snd_mixer_attach(handle, card);
+      snd_mixer_selem_register(handle, NULL, NULL);
+      snd_mixer_load(handle);
 
       snd_mixer_selem_id_alloca(&sid_cap);
       snd_mixer_selem_id_set_index(sid_cap, 0);
       snd_mixer_selem_id_set_name(sid_cap, cap_name);
       elem_cap = snd_mixer_find_selem(handle, sid_cap);
     
+      long vol, min=0, max=0;
       err = snd_mixer_selem_get_capture_volume_range(elem_cap, &min, &max);
       if(err != 0) {
          printf("Unable to get capture limits\n");
@@ -60,9 +80,8 @@ static int SetLevels(long master, long capture)
       if(err != 0) {
          printf("Unable to set capture volume\n");
       }
+      snd_mixer_close(handle);
    }
-
-   snd_mixer_close(handle);
    return 1;
 }
 
@@ -73,10 +92,10 @@ static int init_pb(snd_pcm_t **snddev_pb, const char *name)
   snd_pcm_hw_params_t *hw_params;
 
   if( name == NULL ) {
-      err = snd_pcm_open(snddev_pb, "plughw:0,0", SND_PCM_STREAM_PLAYBACK, 0 );
-  } else {
-      err = snd_pcm_open(snddev_pb, name, SND_PCM_STREAM_PLAYBACK, 0);
+      name = "plughw:0,0";
+      printf("USING %s\n",name);
   }
+  err = snd_pcm_open(snddev_pb, name, SND_PCM_STREAM_PLAYBACK, 0);
 
   if( err < 0 ) {
       printf("Init: cannot open audio playback device %s (%s)\n", name, snd_strerror(err));
@@ -261,13 +280,11 @@ struct frame_i16_stereo {
    int16_t r;
 };
 
-static int capture_data(double *points, int point_count) {
+static int capture_data(char *device_pb, char *device_cap, double *points, int point_count) {
 
    assert(points != NULL);
    snd_pcm_t *snddev_pb;
    snd_pcm_t *snddev_cap;
-   int setup_point_count = point_count;
-   int setup_frequency_hz = 1000;
    int rtn = 0;
    int wp = 0;
    int swp = 0;
@@ -276,9 +293,7 @@ static int capture_data(double *points, int point_count) {
    int16_t *pb_samples;
    double  *pb_sin;
    double  *pb_cos;
-   int volume_pb = 80;
-   int volume_cap = 3;
-   int best_volume_cap = 3;
+
 
    pb_samples  = malloc(sizeof(int16_t)*desired_rate);
    pb_sin      = malloc(sizeof(double)*desired_rate);
@@ -303,33 +318,38 @@ static int capture_data(double *points, int point_count) {
       pb_samples[i] = s;
    }
 
-   if(init_pb(&snddev_pb, NULL) && init_cap(&snddev_cap, NULL)) {
+   if(init_pb(&snddev_pb, device_pb) && init_cap(&snddev_cap, device_cap)) {
       int to_write = 0;
       int buffer_written = 0;
       int samples_read = 0;
-      int skip = actual_rate/10;
-      double setup_dest_db      = 0.0;
-      double setup_last_dest_db = 0.0;
-      volume_pb  = 20;
-      best_volume_cap = 3;
-      volume_cap = 3;
+      int skip = actual_rate/5;
+      double setup_dest_db = 0.0;
+      double best_dest_db  = 0.0;
+      double setup_power   = 0.0;
+      int volume_pb = 30;
+      int volume_cap = 7;
+      int best_volume_cap = 7;
+      int setup_point_count = point_count;
+      int setup_frequency_hz = 1000;
+
+      if(setup_point_count > actual_rate/10)
+         setup_point_count = actual_rate/10;
 
       do {
          ///////////////////////////////////////////////////
          //// Find Optimal volume 
          ///////////////////////////////////////////////////
-         double setup_power       = 0.0;
          double setup_cos         = 0.0;
          double setup_sin         = 0.0;
          double setup_signal      = 0.0;
          double setup_distortion  = 0.0;
-         if(setup_last_dest_db < setup_dest_db+1.00) {
-            setup_last_dest_db = setup_dest_db;
+         if(best_dest_db > setup_dest_db-2.0) {
+            best_dest_db    = setup_dest_db;
             best_volume_cap = volume_cap;
          }
-         volume_cap++; 
+	 volume_cap+=2; 
          printf("\n");
-         SetLevels(volume_pb, volume_cap);
+         SetLevels(device_pb, device_cap, volume_pb, volume_cap);
          samples_read = 0;
     
          while(samples_read < skip+setup_point_count) {
@@ -378,23 +398,24 @@ static int capture_data(double *points, int point_count) {
          setup_signal  = sqrt(setup_sin*setup_sin + setup_cos*setup_cos)/sqrt(2);
          setup_power   = sqrt(setup_power);
          setup_distortion = setup_power-setup_signal;
-         setup_dest_db    = (log(setup_power)-log(setup_distortion))/log(10)*10; 
+         setup_dest_db    = (log(setup_distortion)-log(setup_power))/log(10)*10; 
          printf("Setup signal      %12.6f\n", setup_signal);
          printf("Setup power       %12.6f\n", setup_power);
          printf("Est distortion  %12.6f dB\n", setup_dest_db);
-         if(setup_dest_db < 10.0) { 
+         if(setup_dest_db > -7.0) { 
+           
             fprintf(stderr, "No signal detected. Have you got the loopback cable plugged in?\n");
             exit(5);
          }
          volume_pb = 100;
-      } while(setup_dest_db > setup_last_dest_db-3);
+      } while(setup_power < 30000 && volume_cap < 100);  // Until we have overloaded
 
-      volume_cap--; 
-      SetLevels(volume_pb, best_volume_cap);
+      SetLevels(device_pb, device_cap, volume_pb, best_volume_cap);
        
       ////////////////////////////////////////////
       //// And now the actual capture
       ////////////////////////////////////////////
+      skip = actual_rate;
       samples_read = 0;
       while(samples_read < skip+point_count) {
          if(to_write == 0) {
@@ -424,7 +445,7 @@ static int capture_data(double *points, int point_count) {
          if(frames_read > 0) {
              for(int i = 0; i < frames_read; i++) {
                 if(samples_read >= skip && samples_read < skip+point_count)
-                  points[samples_read - skip] = buffer_in[i].l;
+                  points[samples_read - skip] = buffer_in[i].r;
                 samples_read++;
              } 
          }
@@ -438,7 +459,7 @@ static int capture_data(double *points, int point_count) {
 }
 
 //=========================================================================================
-#define WIDTH   1920
+#define WIDTH   3840
 #define HEIGHT  1080
 #define LEFT_MARGIN   200
 #define RIGHT_MARGIN   50
@@ -593,24 +614,35 @@ void find_s_c(double *points, int point_count, double bin, double *st, double *c
    }
 }
 
-void remove_tone(double *points, int point_count, double bin, double st, double ct, double *rms) {
+double calc_rms(double *points, int point_count) {
    int i;
-   *rms = 0.0;
+   double rms = 0.0;
+   for(i = 0; i < point_count; i++) {
+      rms += (points[i]*points[i]);
+   }
+   rms /= point_count;
+   return sqrt(rms);
+}
+
+void remove_bin(double *points, int point_count, double bin, double st, double ct) {
+   int i;
    for(i = 0; i < point_count; i++) {
       double phase = i*bin/((double)point_count)*2*M_PI;
       double f = st*sin(phase) + ct*cos(phase);
       points[i] -= f;
-      *rms += (points[i]*points[i]);
    }
-   *rms /= point_count;
-   *rms = sqrt(*rms);
 }
 
 double *signal;
 
-int analyze(double *points, int point_count) {
-   int i = 0;
-   double st,ct;
+void window(double *points, int point_count) {
+   for(int i = 0;i < point_count; i++) {
+      points[i] *=  0.42 - 0.5 * cos(2*M_PI*i/point_count) + 0.08 * cos(4*M_PI*i/point_count);
+   }
+}
+
+int analyze(double *points, int point_count, double max_rms) {
+   int i = 0; double st,ct;
    double rms = 0.0;
 
    printf("\nAnalysing captured data...\n");
@@ -637,7 +669,7 @@ int analyze(double *points, int point_count) {
 
    for(i = 0;i < point_count/2; i++) {
       find_s_c(points, point_count, i, &st, &ct);
-      signal[i] = log(sqrt(st*st+ct*ct)/32768)/log(10)*20;
+      signal[i] = log(sqrt(st*st+ct*ct)/max_rms)/log(10)*20;
    }
 
    int max_bin = 0;
@@ -647,14 +679,21 @@ int analyze(double *points, int point_count) {
       }
    }
 
+   double s = 0.0;
+   int notch_width = 50.0/(actual_rate/point_count);
+   for(int bin = max_bin-notch_width; bin < max_bin+notch_width; bin++) {
+      if(bin >= 0 && bin <= point_count/2) {
+         find_s_c(points, point_count, bin, &st, &ct);
+         remove_bin(points, point_count, bin, st, ct);
+         s += sqrt(st*st+ct*ct)/sqrt(2);
+      } 
+   }
 
-   find_s_c(points, point_count, max_bin, &st, &ct);
-   remove_tone(points, point_count, max_bin, st, ct, &rms);
    printf("\n");
-   double s =sqrt(st*st+ct*ct)/sqrt(2);
+   rms = calc_rms(points,point_count);
    printf("signal = %10.2f  %8.3f dB\n",s, signal[max_bin]);
    printf("thd+n  = %10.2f  (%7.3f%%)\n",rms, rms/s*100);
-   printf("s:n    = %10.2f dB\n",log(s/rms*s/rms)/log(10)*10);
+   printf("s:n    = %10.2f dB\n",log(rms/s*rms/s)/log(10)*10);
 
    char text[100]; 
    sprintf(text,"thd+n %7.4f%%, peak %4.2f Hz", rms/s*100, (double)max_bin * actual_rate/point_count );
@@ -665,7 +704,9 @@ int analyze(double *points, int point_count) {
 
 int main( int argc, char *argv[] )
 {
-   int points_to_cap = 12000;
+   char *device_pb   = "hw:0";
+   char *device_cap  = "hw:0";
+   int points_to_cap = 24000;
 
    double *points;
    points = malloc(sizeof(double)*points_to_cap);
@@ -673,11 +714,22 @@ int main( int argc, char *argv[] )
       fprintf(stderr,"Out of memory\n");
       return 3;
    }
+   for(int i = 0; i < points_to_cap; i++) {
+     points[i] = 32767;
+   }
+   window(points, points_to_cap);
+   double max_rms = calc_rms(points,points_to_cap);
+   printf("Max RMS %f\n",max_rms);
+   
 
-   if(!capture_data(points, points_to_cap))
+   if(argc >= 2) device_pb = argv[1];
+   if(argc == 3) device_cap = argv[2];
+
+   if(!capture_data(device_pb, device_cap, points, points_to_cap))
       return 3;
 
-   analyze(points, points_to_cap);
+   window(points, points_to_cap);
+   analyze(points, points_to_cap, max_rms);
    free(points);
    return 0;
 }
